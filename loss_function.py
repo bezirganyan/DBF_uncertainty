@@ -1,15 +1,16 @@
 import torch
 import torch.nn.functional as F
+from torch import digamma
 
 
 def kl_divergence(alpha, num_classes, device):
     ones = torch.ones([1, num_classes], dtype=torch.float32, device=device)
     sum_alpha = torch.sum(alpha, dim=1, keepdim=True)
     first_term = (
-        torch.lgamma(sum_alpha)
-        - torch.lgamma(alpha).sum(dim=1, keepdim=True)
-        + torch.lgamma(ones).sum(dim=1, keepdim=True)
-        - torch.lgamma(ones.sum(dim=1, keepdim=True))
+            torch.lgamma(sum_alpha)
+            - torch.lgamma(alpha).sum(dim=1, keepdim=True)
+            + torch.lgamma(ones).sum(dim=1, keepdim=True)
+            - torch.lgamma(ones.sum(dim=1, keepdim=True))
     )
     second_term = (
         (alpha - ones)
@@ -115,3 +116,33 @@ def get_loss(evidences, evidence_a, target, epoch_num, num_classes, annealing_st
     loss_acc = loss_acc / (len(evidences) + 1)
     loss = loss_acc + gamma * get_dc_loss(evidences, device)
     return loss
+
+
+def belief_matching(alphas, ys):
+    prior = 1.
+    coeff = 0.1
+    # alphas = torch.exp(alphas)
+    betas = prior * torch.ones_like(alphas)
+    ys = ys.long()
+    a_ans = torch.gather(alphas, -1, ys.unsqueeze(-1)).squeeze(-1)
+    a_zero = torch.sum(alphas, -1)
+    ll_loss = digamma(a_ans) - digamma(a_zero)
+
+    loss1 = torch.lgamma(a_zero) - torch.sum(torch.lgamma(alphas), -1)
+    loss2 = torch.sum(
+        (alphas - betas) * (digamma(alphas) - digamma(a_zero.unsqueeze(-1))),
+        -1)
+    kl_loss = loss1 + loss2
+
+    loss = (coeff * kl_loss - ll_loss).mean()
+    return loss
+
+
+def get_bm_loss(alphas, alpha_a, target):
+    loss_acc = belief_matching(alpha_a, target)
+    for v in range(len(alphas)):
+        alpha = alphas[v] + 1
+        loss_acc += belief_matching(alpha, target)
+    loss_acc = loss_acc / (len(alphas) + 1)
+    # loss = loss_acc + gamma * get_dc_loss(evidences, device)
+    return loss_acc

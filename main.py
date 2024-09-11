@@ -3,9 +3,21 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 
-from data import Scene, HandWritten, PIE
+from data import CUB, CalTech, Scene, HandWritten, PIE
 from loss_function import get_bm_loss, get_loss
 from model import RCML
+import sys
+
+gettrace = getattr(sys, 'gettrace', None)
+
+if gettrace is None:
+    print('No sys.gettrace')
+elif gettrace():
+    old_repr = torch.Tensor.__repr__
+    def tensor_info(tensor):
+        return repr(tensor.shape)[6:] + ' ' + repr(tensor.dtype)[6:] + '@' + str(tensor.device) + '\n' + old_repr(
+            tensor)
+    torch.Tensor.__repr__ = tensor_info
 
 np.set_printoptions(precision=4, suppress=True)
 
@@ -23,6 +35,7 @@ def normal(args, dataset, agg):
 
     model = RCML(num_views, dims, num_classes, agg)
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.5)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     gamma = 1
@@ -41,6 +54,7 @@ def normal(args, dataset, agg):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+        lr_scheduler.step()
 
     model.eval()
     num_correct, num_sample = 0, 0
@@ -124,7 +138,7 @@ if __name__ == '__main__':
     parser.add_argument('--runs', type=int, default=1)
     args = parser.parse_args()
 
-    datasets = [Scene(), HandWritten(), PIE()]
+    datasets = [CUB(), CalTech(), Scene(), HandWritten(), PIE()]
 
     results = dict()
     runs = args.runs

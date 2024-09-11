@@ -106,3 +106,31 @@ def PIE():
     for v in range(len(data_X)):
         data_X[v] = data_X[v].T
     return MultiViewDataset("PIE", data_X, data_Y)
+
+
+def CalTech():
+    # dims of views: 484 256 279
+    data_path = "data/2view-caltech101-8677sample.mat"
+    data = sio.loadmat(data_path)
+    data_X = data['X'][0]
+    data_Y = data['gt']
+    # Take the first 10 categories
+    data_Y = data_Y - 1
+    data_X[0] = data_X[0][:, data_Y.reshape(-1) < 10]
+    data_X[1] = data_X[1][:, data_Y.reshape(-1) < 10]
+    data_Y = data_Y[data_Y < 10]
+    for v in range(len(data_X)):
+        data_X[v] = data_X[v].T
+    return MultiViewDataset("CalTech", data_X, data_Y)
+
+
+def CUB():
+    # dims of views: 484 256 279
+    data_path = "data/cub_googlenet_doc2vec_c10.mat"
+    data = sio.loadmat(data_path)
+    data_X = data['X'][0]
+    data_Y = data['gt']
+    data_Y = data_Y - 1
+    # for v in range(len(data_X)):
+    #     data_X[v] = data_X[v].T
+    return MultiViewDataset("CUB", data_X, data_Y)

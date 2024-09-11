@@ -29,6 +29,8 @@ class RCML(nn.Module):
             evidence_a = evidences[indices[0]]
         else:
             evidence_a = evidences[0]
+        if self.aggregation == 'weighted_belief':
+            div_a, evidence_a = self.get_weighted_belief_fusion(self.num_views,0, evidences, 0)
 
         for i in range(1, self.num_views):
             if self.aggregation == 'average':

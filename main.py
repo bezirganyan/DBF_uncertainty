@@ -21,8 +21,9 @@ elif gettrace():
 
 np.set_printoptions(precision=4, suppress=True)
 
-
+dataset_best_model_checkpoint = {}
 def normal(args, dataset, agg):
+    global dataset_best_model_checkpoint
     num_samples = len(dataset)
     num_classes = dataset.num_classes
     num_views = dataset.num_views
@@ -30,33 +31,84 @@ def normal(args, dataset, agg):
     index = np.arange(num_samples)
     np.random.shuffle(index)
     train_index, test_index = index[:int(0.8 * num_samples)], index[int(0.8 * num_samples):]
-    train_loader = DataLoader(Subset(dataset, train_index), batch_size=args.batch_size, shuffle=True)
+    # train_loader = DataLoader(Subset(dataset, train_index), batch_size=args.batch_size, shuffle=True)
     test_loader = DataLoader(Subset(dataset, test_index), batch_size=args.batch_size, shuffle=False)
 
-    model = RCML(num_views, dims, num_classes, agg)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
-    lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.5)
+
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     gamma = 1
 
-    model.to(device)
-    model.train()
-    for epoch in range(1, args.epochs + 1):
-        # print(f'====> {epoch}')
-        for X, Y, indexes in train_loader:
-            for v in range(num_views):
-                X[v] = X[v].to(device)
-            Y = Y.to(device)
-            evidences, evidence_a = model(X)
-            loss = get_loss(evidences, evidence_a, Y, epoch, num_classes, args.annealing_step, gamma, device)
-            # loss = get_bm_loss(evidences, evidence_a, Y)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-        lr_scheduler.step()
+    # We are going to do a cross validation
+    cv_folds = 5
+    lr_values = [0.0001, 0.0003, 0.001, 0.003, 0.01]
+    annealing_values = [1, 10, 30, 50]
+    gamma_values = [0.1, 0.3, 0.5]
+    # cv_folds = 2
+    # lr_values = [0.0001, 0.0003]
+    # annealing_values = [1]
+    # gamma_values = [0.1]
+    parameter_groups = [(lr, annealing, gamma) for lr in lr_values for annealing in annealing_values for gamma in gamma_values]
+    cv_results = {}
+    for lr, annealing, gamma in parameter_groups:
+        print(f'====> Trying parameters: lr: {lr} annealing: {annealing} gamma: {gamma}')
+        cv_results[(lr, annealing, gamma)] = []
+        for fold in range(cv_folds):
+            print(f'====> fold: {fold}')
+            val_set = train_index[fold * len(train_index) // cv_folds: (fold + 1) * len(train_index) // cv_folds]
+            train_set = np.setdiff1d(train_index, val_set)
+            train_loader = DataLoader(Subset(dataset, train_set), batch_size=args.batch_size, shuffle=True)
+            val_loader = DataLoader(Subset(dataset, val_set), batch_size=args.batch_size, shuffle=False)
 
+            model = RCML(num_views, dims, num_classes, agg)
+            optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
+            # lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.5)
+            model.to(device)
+            model.train()
+            max_acc = 0
+            best_epoch = 0
+            for epoch in range(1, args.epochs + 1):
+                # print(f'====> {epoch}')
+                for X, Y, indexes in train_loader:
+                    for v in range(num_views):
+                        X[v] = X[v].to(device)
+                    Y = Y.to(device)
+                    evidences, evidence_a = model(X)
+                    loss = get_loss(evidences, evidence_a, Y, epoch, num_classes, annealing, gamma, device)
+                    # loss = get_bm_loss(evidences, evidence_a, Y)
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                # lr_scheduler.step()
+                if epoch % 100 == 0:
+                    model.eval()
+                    num_correct, num_sample = 0, 0
+                    for X, Y, indexes in val_loader:
+                        for v in range(num_views):
+                            X[v] = X[v].to(device)
+                        Y = Y.to(device)
+                        with torch.no_grad():
+                            evidences, evidence_a = model(X)
+                            _, Y_pre = torch.max(evidence_a, dim=1)
+                            num_correct += (Y_pre == Y).sum().item()
+                            num_sample += Y.shape[0]
+                    val_cc = num_correct / num_sample
+                    if val_cc > max_acc:
+                        max_acc = val_cc
+                        if val_cc > max(*cv_results[(lr, annealing, gamma)], 0, 0):
+                            torch.save(model.state_dict(), f'checkpoints/{dataset.data_name}_{agg}_{lr}_{annealing}_{gamma}.pt')
+                        best_epoch = epoch
+                    print(f'====> validation acc: {num_correct / num_sample}')
+                    model.train()
+            print(f'====> Best epoch: {best_epoch} with acc: {max_acc}')
+            cv_results[(lr, annealing, gamma)].append(max_acc)
+    best_params = max(cv_results, key=lambda x: np.mean(cv_results[x]))
+    dataset_best_model_checkpoint[dataset.data_name] = best_params
+    print(f'====> Best parameters: {best_params} with acc: {np.mean(cv_results[best_params])} std: {np.std(cv_results[best_params])}')
+    model = RCML(num_views, dims, num_classes, agg)
+    model.load_state_dict(torch.load(f'checkpoints/{dataset.data_name}_{agg}_{best_params[0]}_{best_params[1]}_{best_params[2]}.pt'))
     model.eval()
+    model.to(device)
     num_correct, num_sample = 0, 0
     for X, Y, indexes in test_loader:
         for v in range(num_views):
@@ -71,7 +123,7 @@ def normal(args, dataset, agg):
     return num_correct / num_sample
 
 
-def conflict(args, dataset, agg):
+def conflict(args, dataset, agg, retrain_conflict=False):
     num_samples = len(dataset)
     num_classes = dataset.num_classes
     num_views = dataset.num_views
@@ -85,29 +137,32 @@ def conflict(args, dataset, agg):
 
     train_loader = DataLoader(Subset(dataset, train_index), batch_size=args.batch_size, shuffle=True)
     test_loader = DataLoader(Subset(dataset, test_index), batch_size=args.batch_size, shuffle=False)
-
+    best_params = dataset_best_model_checkpoint[dataset.data_name]
     model = RCML(num_views, dims, num_classes, agg)
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
-
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     gamma = 1
 
-    model.to(device)
-    model.train()
-    for epoch in range(1, args.epochs + 1):
-        # print(f'====> {epoch}')
-        for X, Y, indexes in train_loader:
-            for v in range(num_views):
-                X[v] = X[v].to(device)
-            Y = Y.to(device)
-            evidences, evidence_a = model(X)
-            loss = get_loss(evidences, evidence_a, Y, epoch, num_classes, args.annealing_step, gamma, device)
-            # loss = get_bm_loss(evidences, evidence_a, Y)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+    if not retrain_conflict:
+        model.load_state_dict(torch.load(f'checkpoints/{dataset.data_name}_{agg}_{best_params[0]}_{best_params[1]}_{best_params[2]}.pt'))
+    else:
+        model.to(device)
+        model.train()
+        for epoch in range(1, args.epochs + 1):
+            # print(f'====> {epoch}')
+            for X, Y, indexes in train_loader:
+                for v in range(num_views):
+                    X[v] = X[v].to(device)
+                Y = Y.to(device)
+                evidences, evidence_a = model(X)
+                loss = get_loss(evidences, evidence_a, Y, epoch, num_classes, args.annealing_step, gamma, device)
+                # loss = get_bm_loss(evidences, evidence_a, Y)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
     model.eval()
+    model.to(device)
     num_correct, num_sample = 0, 0
     for X, Y, indexes in test_loader:
         for v in range(num_views):
@@ -118,7 +173,7 @@ def conflict(args, dataset, agg):
             _, Y_pre = torch.max(evidence_a, dim=1)
             num_correct += (Y_pre == Y).sum().item()
             num_sample += Y.shape[0]
-    print('====> acc: {:.4f}'.format(num_correct / num_sample))
+    print('====> Conflict acc: {:.4f}'.format(num_correct / num_sample))
     return num_correct / num_sample
 
 
@@ -128,7 +183,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch-size', type=int, default=200, metavar='N',
                         help='input batch size for training [default: 100]')
-    parser.add_argument('--epochs', type=int, default=500, metavar='N',
+    parser.add_argument('--epochs', type=int, default=1000, metavar='N',
                         help='number of epochs to train [default: 500]')
     parser.add_argument('--annealing_step', type=int, default=50, metavar='N',
                         help='gradually increase the value of lambda from 0 to 1')

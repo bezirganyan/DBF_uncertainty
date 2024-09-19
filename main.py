@@ -199,8 +199,8 @@ if __name__ == '__main__':
     parser.add_argument('--runs', type=int, default=1)
     args = parser.parse_args()
 
-    datasets = [HandWritten, PIE]
-    # datasets = [CUB, CalTech, Scene, HandWritten, PIE]
+    # datasets = [HandWritten, PIE]
+    datasets = [CUB, CalTech, Scene, HandWritten, PIE]
 
     results = dict()
     runs = args.runs

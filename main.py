@@ -35,17 +35,17 @@ def do_hyperparameter_search(args, dataset, agg):
     train_index, test_index = index[:int(0.8 * num_samples)], index[int(0.8 * num_samples):]
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    # cv_folds = 5
-    # lr_values = [0.0003, 0.001, 0.003, 0.01]
-    # annealing_values = [1, 10, 30, 50]
-    # gamma_values = [0.5, 0.7, 1]
-    # weight_decays = [1e-5, 1e-4, 1e-3]
-
-    cv_folds = 2
-    lr_values = [0.0003]
-    annealing_values = [1]
-    gamma_values = [0.5, 0.7]
-    weight_decays = [1e-5]
+    cv_folds = 5
+    lr_values = [0.0003, 0.001, 0.003, 0.01]
+    annealing_values = [1, 10, 30, 50]
+    gamma_values = [0.5, 0.7, 1]
+    weight_decays = [1e-5, 1e-4, 1e-3]
+    #
+    # cv_folds = 2
+    # lr_values = [0.0003]
+    # annealing_values = [1]
+    # gamma_values = [0.5, 0.7]
+    # weight_decays = [1e-5]
     parameter_groups = [(lr, annealing, gamma, weight_decay) for lr in lr_values for annealing in annealing_values for gamma in gamma_values for weight_decay in weight_decays]
     cv_results = {}
     for lr, annealing, gamma, weight_decay in parameter_groups:

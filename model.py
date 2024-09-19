@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 import torch.nn as nn
+from networkx.algorithms.isomorphism.matchhelpers import allclose
+from pygments.lexer import combined
 from pyparsing import alphas
 
 
@@ -31,6 +33,8 @@ class RCML(nn.Module):
             evidence_a = evidences[0]
         if self.aggregation == 'weighted_belief':
             div_a, evidence_a = self.get_weighted_belief_fusion(self.num_views,0, evidences, 0)
+        if self.aggregation == 'doc':
+            return self.get_doc_belief_fusion(self.num_views, evidences)
 
         for i in range(1, self.num_views):
             if self.aggregation == 'average':
@@ -68,6 +72,27 @@ class RCML(nn.Module):
         div_a = div_a - aleatoric_to_1
         return div_a, evidence_a
 
+
+    def get_doc_belief_fusion(self, div_a, evidences):
+        evidence_tensor = torch.stack(list(evidences.values()), dim=1)
+        belief_tensor = evidence_tensor / (evidence_tensor + 1).sum(dim=-1).unsqueeze(-1)
+        prob_tensor = (evidence_tensor + 1) / (evidence_tensor + 1).sum(dim=-1).unsqueeze(-1)
+        uncertainty = self.num_classes / (evidence_tensor + 1).sum(dim=-1).unsqueeze(-1)
+        discount = torch.ones(belief_tensor.shape[:-1]).to(belief_tensor.device)
+        for i in range(self.num_views):
+            cp = torch.abs(prob_tensor[:, i].unsqueeze(1) - prob_tensor).sum(-1) / 2
+            cc = ((1 - uncertainty[:, i].unsqueeze(1)) * (1 - uncertainty)).squeeze(1)
+            dc = cp * cc.squeeze(-1)
+            agreement = torch.prod(1 - dc, dim=1)
+            discount[:, i] *= agreement
+        discount = discount.unsqueeze(-1)
+        belief_tensor = belief_tensor * discount
+        uncertainty =  uncertainty * discount + 1 - discount
+        assert torch.allclose(belief_tensor.sum(dim=-1) + uncertainty.squeeze(-1), torch.ones_like(belief_tensor.sum(dim=-1)))
+        evidences_a = self.num_classes * belief_tensor / uncertainty
+        combined_evidence = evidences_a.mean(dim=1)
+
+        return evidences, combined_evidence
 
 class EvidenceCollector(nn.Module):
     def __init__(self, dims, num_classes):

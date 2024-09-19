@@ -222,10 +222,8 @@ if __name__ == '__main__':
         results[f'{dataset.data_name}_conflict_std'] = np.std(acc_conflict) * 100
 
     print('====> Results')
-    for key, value in results.items():
-        print(f'{key}: {value:0.3f}%')
-
     with open(f'{args.agg}_{args.runs}_{args.epochs}_hs.txt', 'w+') as f:
         for key, value in results.items():
             if key.endswith('mean'):
+                print(f'{key}: {value:0.3f}% ± {results[key.replace("_mean", "_std")]:0.3f}\n')
                 f.write(f'{key}: {value:0.3f}% ± {results[key.replace("_mean", "_std")]:0.3f}\n')

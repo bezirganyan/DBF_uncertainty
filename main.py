@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 import torch.optim as optim
-from labml_nn.normalization.batch_norm.cifar10 import model
 from torch.utils.data import DataLoader, Subset
 
 from data import CUB, CalTech, Scene, HandWritten, PIE

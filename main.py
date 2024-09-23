@@ -22,46 +22,6 @@ elif gettrace():
 np.set_printoptions(precision=4, suppress=True)
 
 
-def do_hyperparameter_search(args, dataset, agg):
-    print('Hyperparameter search')
-    print('=' * 20)
-    num_samples = len(dataset)
-    num_classes = dataset.num_classes
-    num_views = dataset.num_views
-    dims = dataset.dims
-    index = np.arange(num_samples)
-    np.random.shuffle(index)
-    train_index, test_index = index[:int(0.8 * num_samples)], index[int(0.8 * num_samples):]
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    cv_folds = 5
-    lr_values = [0.0003, 0.001, 0.003, 0.01]
-    annealing_values = [1, 10, 30, 50]
-    gamma_values = [0.5, 0.7, 1]
-    weight_decays = [1e-5, 1e-4, 1e-3]
-    #
-    # cv_folds = 2
-    # lr_values = [0.0003]
-    # annealing_values = [1]
-    # gamma_values = [0.5, 0.7]
-    # weight_decays = [1e-5]
-    parameter_groups = [(lr, annealing, gamma, weight_decay) for lr in lr_values for annealing in annealing_values for gamma in gamma_values for weight_decay in weight_decays]
-    cv_results = {}
-    for lr, annealing, gamma, weight_decay in parameter_groups:
-        print(f'====> Trying parameters: lr: {lr} annealing: {annealing} gamma: {gamma} weight_decay: {weight_decay}')
-        cv_results[(lr, annealing, gamma, weight_decay)] = []
-        for fold in range(cv_folds):
-            print(f'====> fold: {fold}')
-            val_set = train_index[fold * len(train_index) // cv_folds: (fold + 1) * len(train_index) // cv_folds]
-            train_set = np.setdiff1d(train_index, val_set)
-            train_loader = DataLoader(Subset(dataset, train_set), batch_size=args.batch_size, shuffle=True)
-            val_loader = DataLoader(Subset(dataset, val_set), batch_size=args.batch_size, shuffle=False)
-
-            model, acc = train(agg, num_classes, num_views, train_loader, val_loader, args, device, dims, annealing, gamma, lr, weight_decay)
-            cv_results[(lr, annealing, gamma, weight_decay)].append(acc)
-    best_params = max(cv_results, key=lambda x: np.mean(cv_results[x]))
-    best_params = dict(zip(['lr', 'annealing', 'gamma', 'weight_decay'], best_params))
-    return best_params
 
 
 def normal(args, dataset, agg, best_params):
@@ -75,7 +35,7 @@ def normal(args, dataset, agg, best_params):
     train_loader = DataLoader(Subset(dataset, train_index), batch_size=args.batch_size, shuffle=True)
     test_loader = DataLoader(Subset(dataset, test_index), batch_size=args.batch_size, shuffle=False)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    model, acc = train(agg, num_classes, num_views, train_loader, None, args, device, dims, **best_params)
+    model, acc = train(agg, num_classes, num_views, train_loader, test_loader, args, device, dims, **best_params)
 
     model.eval()
     model.to(device)
@@ -98,6 +58,7 @@ def train(agg, num_classes, num_views, train_loader, val_loader, args, device, d
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     model.to(device)
     model.train()
+    max_val_acc = 0
     for epoch in range(1, args.epochs + 1):
         for X, Y, indexes in train_loader:
             for v in range(num_views):
@@ -109,23 +70,28 @@ def train(agg, num_classes, num_views, train_loader, val_loader, args, device, d
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-    val_acc = 0
-    if val_loader is None:
-        return model, val_acc
-    model.eval()
-    num_correct, num_sample = 0, 0
-    for X, Y, indexes in val_loader:
-        for v in range(num_views):
-            X[v] = X[v].to(device)
-        Y = Y.to(device)
-        with torch.no_grad():
-            evidences, evidence_a = model(X)
-            _, Y_pre = torch.max(evidence_a, dim=1)
-            num_correct += (Y_pre == Y).sum().item()
-            num_sample += Y.shape[0]
-    val_acc = num_correct / num_sample
-    print(f'====> validation acc: {val_acc:0.3f}')
-    return model, val_acc
+    #     if epoch % 10 == 0:
+    #         val_acc = 0
+    #         model.eval()
+    #         num_correct, num_sample = 0, 0
+    #         for X, Y, indexes in val_loader:
+    #             for v in range(num_views):
+    #                 X[v] = X[v].to(device)
+    #             Y = Y.to(device)
+    #             with torch.no_grad():
+    #                 evidences, evidence_a = model(X)
+    #                 _, Y_pre = torch.max(evidence_a, dim=1)
+    #                 num_correct += (Y_pre == Y).sum().item()
+    #                 num_sample += Y.shape[0]
+    #         val_acc = num_correct / num_sample
+    #         if val_acc > max_val_acc:
+    #             max_val_acc = val_acc
+    #             torch.save(model.state_dict(), f'{agg}_best_model.pth')
+    #         model.train()
+    #         print(f'====> validation acc: {val_acc:0.3f}')
+    # best_model = RCML(num_views, dims, num_classes, agg)
+    # best_model.load_state_dict(torch.load(f'{agg}_best_model.pth'))
+    return model, 0
 
 
 def conflict(args, dataset, agg, model):
@@ -199,7 +165,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # datasets = [HandWritten, PIE]
-    datasets = [CUB, CalTech, Scene, HandWritten, PIE]
+    datasets = [CUB, HandWritten, PIE, CalTech, Scene][::-1]
 
     results = dict()
     runs = args.runs
@@ -208,7 +174,8 @@ if __name__ == '__main__':
         print(f'====> {dataset.data_name}')
         acc_normal = []
         acc_conflict = []
-        best_params = do_hyperparameter_search(args, dataset, args.agg)
+        best_params = {'lr': 0.001, 'annealing': 50, 'gamma': 1, 'weight_decay': 1e-5}
+
         for i in range(runs):
             print(f'====> {dataset.data_name} {i:02d}')
             model, acc = normal(args, dset(), args.agg, best_params)
@@ -224,5 +191,5 @@ if __name__ == '__main__':
     with open(f'{args.agg}_{args.runs}_{args.epochs}_hs.txt', 'w+') as f:
         for key, value in results.items():
             if key.endswith('mean'):
-                print(f'{key}: {value:0.3f}% ± {results[key.replace("_mean", "_std")]:0.3f}\n')
+                print(f'{key}: {value:0.3f}% ± {results[key.replace("_mean", "_std")]:0.3f}')
                 f.write(f'{key}: {value:0.3f}% ± {results[key.replace("_mean", "_std")]:0.3f}\n')

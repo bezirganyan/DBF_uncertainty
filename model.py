@@ -1,14 +1,16 @@
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.nn.functional import softplus
 
 
 class RCML(nn.Module):
-    def __init__(self, num_views, dims, num_classes, aggregation='average'):
+    def __init__(self, num_views, dims, num_classes, aggregation='average', flambda=1):
         super(RCML, self).__init__()
         self.aggregation = aggregation
         self.num_views = num_views
         self.num_classes = num_classes
+        self.flambda = flambda
         self.EvidenceCollectors = nn.ModuleList([EvidenceCollector(dims[i], self.num_classes) for i in range(self.num_views)])
         # self.W_K = torch.nn.Linear(self.num_classes, self.num_classes, bias=False)
         # self.W_Q = torch.nn.Linear(self.num_classes, self.num_classes, bias=False)
@@ -31,9 +33,9 @@ class RCML(nn.Module):
         if self.aggregation == 'weighted_belief':
             div_a, evidence_a = self.get_weighted_belief_fusion(self.num_views,0, evidences, 0)
         if self.aggregation == 'doc':
-            return self.get_doc_belief_fusion(self.num_views, evidences)
+            return self.get_doc_belief_fusion(self.num_views, evidences, self.flambda)
         if self.aggregation == 'weighted_doc':
-            return self.get_weighted_doc_belief_fusion(self.num_views, evidences)
+            return self.get_weighted_doc_belief_fusion(self.num_views, evidences, self.flambda)
         elif self.aggregation == 'tmc':
             return self.DS_Combin(evidences)
 
@@ -84,18 +86,19 @@ class RCML(nn.Module):
             cp = torch.abs(prob_tensor[:, i].unsqueeze(1) - prob_tensor).sum(-1) / 2
             cc = ((1 - uncertainty[:, i].unsqueeze(1)) * (1 - uncertainty)).squeeze(1)
             dc = cp * cc.squeeze(-1)
-            agreement = torch.prod((1 - dc**flambda)**(1/flambda), dim=1)
+            agreement = torch.prod((1 - (dc+1e-6)**flambda)**(1/flambda), dim=1)
             discount[:, i] *= agreement
         discount = discount.unsqueeze(-1)
         belief_tensor = belief_tensor * discount
+        # print(uncertainty.mean(), (uncertainty * discount + 1 - discount).mean())
         uncertainty =  uncertainty * discount + 1 - discount
-        assert torch.allclose(belief_tensor.sum(dim=-1) + uncertainty.squeeze(-1), torch.ones_like(belief_tensor.sum(dim=-1)))
-        evidences_a = self.num_classes * belief_tensor / uncertainty
+        assert torch.allclose(belief_tensor.sum(dim=-1) + uncertainty.squeeze(-1), torch.ones_like(belief_tensor.sum(dim=-1))), f"{(belief_tensor.sum(dim=-1) + uncertainty.squeeze(-1) - torch.ones_like(belief_tensor.sum(dim=-1))).max()}"
+        evidences_a = self.num_classes * belief_tensor / (uncertainty + 1e-6)
         combined_evidence = evidences_a.mean(dim=1)
 
         return evidences, combined_evidence
 
-    def get_weighted_doc_belief_fusion(self, div_a, evidences, flambda=0.5):
+    def get_weighted_doc_belief_fusion(self, div_a, evidences, flambda=2):
         evidence_tensor = torch.stack(list(evidences.values()), dim=1)
         belief_tensor = evidence_tensor / (evidence_tensor + 1).sum(dim=-1).unsqueeze(-1)
         prob_tensor = (evidence_tensor + 1) / (evidence_tensor + 1).sum(dim=-1).unsqueeze(-1)
@@ -110,15 +113,11 @@ class RCML(nn.Module):
         discount = discount.unsqueeze(-1)
         belief_tensor = belief_tensor * discount
         uncertainty =  uncertainty * discount + 1 - discount
-        try :
-            assert torch.allclose(belief_tensor.sum(dim=-1) + uncertainty.squeeze(-1), torch.ones_like(belief_tensor.sum(dim=-1)))
-        except:
-            print(belief_tensor.sum(dim=-1) + uncertainty.squeeze(-1))
-            raise ValueError('Error: sum of belief and uncertainty is not equal to 1')
-
+        assert not torch.isnan(belief_tensor).any()
+        assert torch.allclose(belief_tensor.sum(dim=-1) + uncertainty.squeeze(-1), torch.ones_like(belief_tensor.sum(dim=-1))), belief_tensor.sum(dim=-1) + uncertainty.squeeze(-1)
         evidences_a = self.num_classes * belief_tensor / (uncertainty + 1e-6)
-        # assert (uncertainty.shape[1] - uncertainty.sum(dim=1).unsqueeze(-1)).all() != 0
-        weighted_evidences = evidences_a * (1 - uncertainty) / (uncertainty.shape[1] - uncertainty.sum(dim=1).unsqueeze(-1) + 1e-6)
+        assert not torch.isnan(evidences_a).any()
+        weighted_evidences = evidences_a * (1 - uncertainty) / (self.num_views - uncertainty.sum(dim=1).unsqueeze(-1) + 1e-6)
 
         combined_evidence = weighted_evidences.sum(dim=1)
 
@@ -181,8 +180,9 @@ class RCML(nn.Module):
         return evidences, evidences_a
 
 class EvidenceCollector(nn.Module):
-    def __init__(self, dims, num_classes):
+    def __init__(self, dims, num_classes, aggregation='average'):
         super(EvidenceCollector, self).__init__()
+        self.aggregation = aggregation
         self.num_layers = len(dims)
         self.net = nn.ModuleList()
         for i in range(self.num_layers - 1):
@@ -190,12 +190,12 @@ class EvidenceCollector(nn.Module):
             self.net.append(nn.ReLU())
             self.net.append(nn.Dropout(0.1))
         self.net.append(nn.Linear(dims[self.num_layers - 1], num_classes))
-        self.net.append(nn.Softplus())
+        # self.net.append(nn.Softplus())
 
     def forward(self, x):
         h = self.net[0](x)
         for i in range(1, len(self.net)):
             h = self.net[i](h)
         # check not nan
-        assert not torch.isnan(h).any()
-        return h
+        # assert not torch.isnan(h).any()
+        return 1e13 / (1+1e13*torch.exp(-h)) if self.aggregation == 'doc' else softplus(h)

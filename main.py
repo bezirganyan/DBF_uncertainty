@@ -48,6 +48,7 @@ def normal(args, dataset, agg, best_params):
     model.to(device)
     num_correct, num_sample = 0, 0
     uncertainty_values = []
+    modality_uncertainties_values = []
     for X, Y, indexes in test_loader:
         for v in range(num_views):
             X[v] = X[v].to(device)
@@ -59,16 +60,22 @@ def normal(args, dataset, agg, best_params):
             num_sample += Y.shape[0]
             uncertainties = num_classes / (evidence_a + 1).sum(dim=-1).unsqueeze(-1)
             uncertainty_values.append(uncertainties)
+            modality_uncertainties = []
+            for e in evidences:
+                modality_uncertainties.append(num_classes / (evidences[e] + 1).sum(dim=-1).unsqueeze(-1))
+        modality_uncertainties_values.append(torch.stack(modality_uncertainties, dim=1))
     uncertainty_values = torch.cat(uncertainty_values)
     print(f'====> {agg}_{dataset.data_name} Mean uncertainty: {uncertainty_values.mean().item()}')
-    torch.save(uncertainty_values, f'{agg}_{dataset.data_name}_uncertainty_values_normal_{args.flambda}.pth')
+    torch.save(uncertainty_values, f'exp_results/{agg}_{dataset.data_name}_uncertainty_values_normal_{args.activation}_{args.flambda}.pth')
+    modality_uncertainties_values = torch.cat(modality_uncertainties_values)
+    torch.save(modality_uncertainties_values, f'exp_results/{agg}_{dataset.data_name}_modality_uncertainty_values_normal_{args.activation}_{args.flambda}.pth')
     print('====> acc: {:.4f}'.format(num_correct / num_sample))
     return model, num_correct / num_sample
 
 
 def train(agg, num_classes, num_views, train_loader, val_loader, args, device, dims, annealing, gamma, lr,
           weight_decay=1e-5):
-    model = RCML(num_views, dims, num_classes, agg, flambda=args.flambda)
+    model = RCML(num_views, dims, num_classes, agg, flambda=args.flambda, activation=args.activation)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     model.to(device)
     model.train()
@@ -83,34 +90,10 @@ def train(agg, num_classes, num_views, train_loader, val_loader, args, device, d
             for e in evidences:
                 assert not torch.isnan(evidences[e]).any() and not torch.isinf(evidences[e]).any()
             loss = get_loss(evidences, evidence_a, Y, epoch, num_classes, annealing, gamma, device)
-            # print gradients
-
-            # loss = get_bm_loss(evidences, evidence_a, Y)
             optimizer.zero_grad()
             loss.backward()
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), 1e4)
             optimizer.step()
-    #     if epoch % 10 == 0:
-    #         val_acc = 0
-    #         model.eval()
-    #         num_correct, num_sample = 0, 0
-    #         for X, Y, indexes in val_loader:
-    #             for v in range(num_views):
-    #                 X[v] = X[v].to(device)
-    #             Y = Y.to(device)
-    #             with torch.no_grad():
-    #                 evidences, evidence_a = model(X)
-    #                 _, Y_pre = torch.max(evidence_a, dim=1)
-    #                 num_correct += (Y_pre == Y).sum().item()
-    #                 num_sample += Y.shape[0]
-    #         val_acc = num_correct / num_sample
-    #         if val_acc > max_val_acc:
-    #             max_val_acc = val_acc
-    #             torch.save(model.state_dict(), f'{agg}_best_model.pth')
-    #         model.train()
-    #         print(f'====> validation acc: {val_acc:0.3f}')
-    # best_model = RCML(num_views, dims, num_classes, agg)
-    # best_model.load_state_dict(torch.load(f'{agg}_best_model.pth'))
+
     return model, 0
 
 
@@ -130,7 +113,7 @@ def conflict(args, dataset, agg, model):
     test_loader = DataLoader(Subset(dataset, test_index), batch_size=args.batch_size, shuffle=False)
 
     retrain_conflict = model is None
-    model = model if model else RCML(num_views, dims, num_classes, agg, flambda=args.flambda)
+    model = model if model else RCML(num_views, dims, num_classes, agg, flambda=args.flambda, activation=args.activation)
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     gamma = 1
@@ -155,6 +138,7 @@ def conflict(args, dataset, agg, model):
     model.eval()
     model.to(device)
     uncertainty_values = []
+    modality_uncertainties_values = []
     num_correct, num_sample = 0, 0
     for X, Y, indexes in test_loader:
         for v in range(num_views):
@@ -167,9 +151,15 @@ def conflict(args, dataset, agg, model):
             num_sample += Y.shape[0]
             uncertainties = num_classes / (evidence_a + 1).sum(dim=-1).unsqueeze(-1)
             uncertainty_values.append(uncertainties)
+            modality_uncertainties = []
+            for e in evidences:
+                modality_uncertainties.append(num_classes / (evidences[e] + 1).sum(dim=-1).unsqueeze(-1))
+        modality_uncertainties_values.append(torch.stack(modality_uncertainties, dim=1))
     uncertainty_values = torch.cat(uncertainty_values)
+    modality_uncertainties_values = torch.cat(modality_uncertainties_values)
     print(f'====> {agg}_{dataset.data_name} Mean uncertainty: {uncertainty_values.mean().item()}')
-    torch.save(uncertainty_values, f'{agg}_{dataset.data_name}_uncertainty_values_conflict_{args.flambda}.pth')
+    torch.save(uncertainty_values, f'exp_results/{agg}_{dataset.data_name}_uncertainty_values_conflict_{args.activation}_{args.flambda}.pth')
+    torch.save(modality_uncertainties_values, f'exp_results/{agg}_{dataset.data_name}_modality_uncertainty_values_conflict_{args.activation}_{args.flambda}.pth')
     print('====> Conflict acc: {:.4f}'.format(num_correct / num_sample))
     return num_correct / num_sample
 
@@ -189,6 +179,7 @@ if __name__ == '__main__':
     parser.add_argument('--agg', type=str, default='conf_agg')
     parser.add_argument('--runs', type=int, default=1)
     parser.add_argument('--flambda', type=float, default=1)
+    parser.add_argument('--activation', type=str, default='softplus')
     args = parser.parse_args()
 
     # datasets = [HandWritten, PIE]
@@ -202,6 +193,9 @@ if __name__ == '__main__':
 
     results = dict()
     runs = args.runs
+    import pandas as pd
+    columns = ['dataset', 'aggregation', 'activation', 'flambda',  'n_mean', 'n_std', 'c_mean', 'c_std']
+    data = []
     for dset in datasets:
         dataset = dset()
         print(f'====> {dataset.data_name}')
@@ -220,9 +214,12 @@ if __name__ == '__main__':
         results[f'{dataset.data_name}_normal_std'] = np.std(acc_normal) * 100
         results[f'{dataset.data_name}_conflict_mean'] = np.mean(acc_conflict) * 100
         results[f'{dataset.data_name}_conflict_std'] = np.std(acc_conflict) * 100
+        data.append([dataset.data_name, args.agg, args.activation, args.flambda, np.mean(acc_normal) * 100, np.std(acc_normal) * 100, np.mean(acc_conflict) * 100, np.std(acc_conflict) * 100])
+    df = pd.DataFrame(data, columns=columns)
+    df.to_csv(f'exp_results/{args.agg}_{args.runs}_{args.epochs}_{args.activation}.csv')
 
     print('====> Results')
-    with open(f'{args.agg}_{args.runs}_{args.epochs}_hs.txt', 'w+') as f:
+    with open(f'exp_results/{args.agg}_{args.runs}_{args.epochs}_{args.activation}.txt', 'w+') as f:
         for key, value in results.items():
             if key.endswith('mean'):
                 print(f'{key}: {value:0.3f}% ± {results[key.replace("_mean", "_std")]:0.3f}')

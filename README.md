@@ -49,6 +49,9 @@ Run the script with a custom batch size and learning rate:
 python script.py --batch-size 100 --lr 0.001
 ```
 
+## Thanks
+Some code snippets were borrowed from: https://github.com/jiajunsi/RCML, which is within our realted work
+
 ## License
 
 This project is licensed under the GPL-3.0 license - see the [LICENSE](LICENSE) file for details.

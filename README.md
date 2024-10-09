@@ -51,4 +51,4 @@ python script.py --batch-size 100 --lr 0.001
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GPL-3.0 license - see the [LICENSE](LICENSE) file for details.

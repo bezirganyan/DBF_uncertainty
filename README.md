@@ -50,7 +50,7 @@ python script.py --batch-size 100 --lr 0.001
 ```
 
 ## Thanks
-Some code snippets were borrowed from: https://github.com/jiajunsi/RCML, which is within our realted work
+Some code snippets were borrowed from: https://github.com/jiajunsi/RCML, which is within our related work
 
 ## License
 

@@ -5,13 +5,14 @@ from torch.nn.functional import softplus
 
 
 class RCML(nn.Module):
-    def __init__(self, num_views, dims, num_classes, aggregation='average', flambda=1):
+    def __init__(self, num_views, dims, num_classes, aggregation='average', flambda=1, activation='softplus'):
         super(RCML, self).__init__()
         self.aggregation = aggregation
         self.num_views = num_views
         self.num_classes = num_classes
         self.flambda = flambda
-        self.EvidenceCollectors = nn.ModuleList([EvidenceCollector(dims[i], self.num_classes) for i in range(self.num_views)])
+        self.activation = activation
+        self.EvidenceCollectors = nn.ModuleList([EvidenceCollector(dims[i], self.num_classes, activation=activation) for i in range(self.num_views)])
         # self.W_K = torch.nn.Linear(self.num_classes, self.num_classes, bias=False)
         # self.W_Q = torch.nn.Linear(self.num_classes, self.num_classes, bias=False)
         # # self.W_V = torch.nn.Linear(self.num_classes, self.num_classes, bias=False)
@@ -37,7 +38,7 @@ class RCML(nn.Module):
         if self.aggregation == 'weighted_doc':
             return self.get_weighted_doc_belief_fusion(self.num_views, evidences, self.flambda)
         elif self.aggregation == 'tmc':
-            return self.DS_Combin(evidences)
+            return self.get_dempsters_combination(evidences)
 
         for i in range(1, self.num_views):
             if self.aggregation == 'average':
@@ -123,7 +124,7 @@ class RCML(nn.Module):
 
         return evidences, combined_evidence
 
-    def DS_Combin(self, evidences):
+    def get_dempsters_combination(self, evidences):
         """
         :param alpha: All Dirichlet distribution parameters.
         :return: Combined Dirichlet distribution parameters.
@@ -180,11 +181,12 @@ class RCML(nn.Module):
         return evidences, evidences_a
 
 class EvidenceCollector(nn.Module):
-    def __init__(self, dims, num_classes, aggregation='average'):
+    def __init__(self, dims, num_classes, aggregation='average', activation='softplus'):
         super(EvidenceCollector, self).__init__()
         self.aggregation = aggregation
         self.num_layers = len(dims)
         self.net = nn.ModuleList()
+        self.activation = activation
         for i in range(self.num_layers - 1):
             self.net.append(nn.Linear(dims[i], dims[i + 1]))
             self.net.append(nn.ReLU())
@@ -192,10 +194,28 @@ class EvidenceCollector(nn.Module):
         self.net.append(nn.Linear(dims[self.num_layers - 1], num_classes))
         # self.net.append(nn.Softplus())
 
+    def activation_function(self, h):
+        if self.activation == 'softplus':
+            return softplus(h)
+        # Compute log(1e13) accurately
+        log1e13 = 13 * torch.log(torch.tensor(10.0, dtype=h.dtype, device=h.device))
+
+        # Numerator in log-space
+        numerator = h + log1e13
+
+        # Denominator in log-space using logaddexp for numerical stability
+        denominator = torch.logaddexp(h, log1e13)
+
+        # Compute the log of the function
+        log_f = numerator - denominator
+
+        # Exponentiate to get the final result
+        return torch.exp(log_f)
+
     def forward(self, x):
         h = self.net[0](x)
         for i in range(1, len(self.net)):
             h = self.net[i](h)
         # check not nan
         # assert not torch.isnan(h).any()
-        return 1e13 / (1+1e13*torch.exp(-h)) if self.aggregation == 'doc' else softplus(h)
+        return self.activation_function(h)

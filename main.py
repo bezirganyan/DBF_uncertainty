@@ -1,8 +1,11 @@
+import os
 import sys
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.optim as optim
+from sklearn.metrics import roc_auc_score
 from torch.utils.data import DataLoader, Subset
 
 from data import CUB, CalTech, HandWritten, PIE, Scene
@@ -27,7 +30,7 @@ elif gettrace():
 np.set_printoptions(precision=4, suppress=True)
 
 
-def normal(args, dataset, agg, best_params):
+def normal(args, dataset, agg, best_params, run=0):
     num_samples = len(dataset)
     num_classes = dataset.num_classes
     num_views = dataset.num_views
@@ -49,6 +52,7 @@ def normal(args, dataset, agg, best_params):
     num_correct, num_sample = 0, 0
     uncertainty_values = []
     modality_uncertainties_values = []
+    correct_predictions = []
     for X, Y, indexes in test_loader:
         for v in range(num_views):
             X[v] = X[v].to(device)
@@ -56,11 +60,13 @@ def normal(args, dataset, agg, best_params):
         with torch.no_grad():
             evidences, evidence_a = model(X)
             _, Y_pre = torch.max(evidence_a, dim=1)
-            num_correct += (Y_pre == Y).sum().item()
+            corrects = (Y_pre == Y)
+            num_correct += corrects.sum().item()
             num_sample += Y.shape[0]
             uncertainties = num_classes / (evidence_a + 1).sum(dim=-1).unsqueeze(-1)
             uncertainty_values.append(uncertainties)
             modality_uncertainties = []
+            correct_predictions.append(corrects)
             for e in evidences:
                 modality_uncertainties.append(num_classes / (evidences[e] + 1).sum(dim=-1).unsqueeze(-1))
         modality_uncertainties_values.append(torch.stack(modality_uncertainties, dim=1))
@@ -68,9 +74,11 @@ def normal(args, dataset, agg, best_params):
     print(f'====> {agg}_{dataset.data_name} Mean uncertainty: {uncertainty_values.mean().item()}')
     torch.save(uncertainty_values, f'exp_results/{agg}_{dataset.data_name}_uncertainty_values_normal_{args.activation}_{args.flambda}.pth')
     modality_uncertainties_values = torch.cat(modality_uncertainties_values)
-    torch.save(modality_uncertainties_values, f'exp_results/{agg}_{dataset.data_name}_modality_uncertainty_values_normal_{args.activation}_{args.flambda}.pth')
+    torch.save(modality_uncertainties_values, f'exp_results/{agg}_{dataset.data_name}_modality_uncertainty_values_normal_{args.activation}_{args.flambda}_run_{run}.pth')
     print('====> acc: {:.4f}'.format(num_correct / num_sample))
-    return model, num_correct / num_sample
+    correct_predictions = torch.cat(correct_predictions)
+    torch.save(correct_predictions.detach().cpu().numpy(), f'exp_results/{agg}_{dataset.data_name}_correct_predictions_{args.activation}_{args.flambda}.pth')
+    return model, num_correct / num_sample, uncertainty_values
 
 
 def train(agg, num_classes, num_views, train_loader, val_loader, args, device, dims, annealing, gamma, lr,
@@ -97,7 +105,7 @@ def train(agg, num_classes, num_views, train_loader, val_loader, args, device, d
     return model, 0
 
 
-def conflict(args, dataset, agg, model):
+def conflict(args, dataset, agg, model, run=0):
     num_samples = len(dataset)
     num_classes = dataset.num_classes
     num_views = dataset.num_views
@@ -140,6 +148,7 @@ def conflict(args, dataset, agg, model):
     uncertainty_values = []
     modality_uncertainties_values = []
     num_correct, num_sample = 0, 0
+    correct_predictions = []
     for X, Y, indexes in test_loader:
         for v in range(num_views):
             X[v] = X[v].to(device)
@@ -147,7 +156,9 @@ def conflict(args, dataset, agg, model):
         with torch.no_grad():
             evidences, evidence_a = model(X)
             _, Y_pre = torch.max(evidence_a, dim=1)
-            num_correct += (Y_pre == Y).sum().item()
+            corrects = (Y_pre == Y)
+            num_correct += corrects.sum().item()
+            correct_predictions.append(corrects)
             num_sample += Y.shape[0]
             uncertainties = num_classes / (evidence_a + 1).sum(dim=-1).unsqueeze(-1)
             uncertainty_values.append(uncertainties)
@@ -159,9 +170,11 @@ def conflict(args, dataset, agg, model):
     modality_uncertainties_values = torch.cat(modality_uncertainties_values)
     print(f'====> {agg}_{dataset.data_name} Mean uncertainty: {uncertainty_values.mean().item()}')
     torch.save(uncertainty_values, f'exp_results/{agg}_{dataset.data_name}_uncertainty_values_conflict_{args.activation}_{args.flambda}.pth')
-    torch.save(modality_uncertainties_values, f'exp_results/{agg}_{dataset.data_name}_modality_uncertainty_values_conflict_{args.activation}_{args.flambda}.pth')
+    torch.save(modality_uncertainties_values, f'exp_results/{agg}_{dataset.data_name}_modality_uncertainty_values_conflict_{args.activation}_{args.flambda}_run_{run}.pth')
     print('====> Conflict acc: {:.4f}'.format(num_correct / num_sample))
-    return num_correct / num_sample
+    correct_predictions = torch.cat(correct_predictions)
+    torch.save(correct_predictions.detach().cpu().numpy(), f'exp_results/{agg}_{dataset.data_name}_correct_predictions_conflict_{args.activation}_{args.flambda}.pth')
+    return num_correct / num_sample, uncertainty_values
 
 
 if __name__ == '__main__':
@@ -193,28 +206,37 @@ if __name__ == '__main__':
 
     results = dict()
     runs = args.runs
-    import pandas as pd
-    columns = ['dataset', 'aggregation', 'activation', 'flambda',  'n_mean', 'n_std', 'c_mean', 'c_std']
+    columns = ['dataset', 'aggregation', 'activation', 'flambda',  'n_mean', 'n_std', 'c_mean', 'c_std', 'auc', 'auc_std']
     data = []
+    # create exp_results folder if it does not exist
+    if not os.path.exists('exp_results'):
+        os.mkdir('exp_results')
     for dset in datasets:
         dataset = dset()
         print(f'====> {dataset.data_name}')
         acc_normal = []
         acc_conflict = []
+        auc = []
 
         for i in range(runs):
             print(f'====> {dataset.data_name} {i:02d}')
-            model, acc = normal(args, dset(), args.agg, best_params[dataset.data_name])
+            model, acc, unc_norm = normal(args, dset(), args.agg, best_params[dataset.data_name], run=i)
             acc_normal.append(acc)
-            conflict_acc = conflict(args, dset(), args.agg, model)
+            conflict_acc, unc_conf = conflict(args, dset(), args.agg, model, run=i)
             acc_conflict.append(conflict_acc)
+            auc.append(roc_auc_score(np.concatenate([np.zeros(len(unc_norm)), np.ones(len(unc_conf))]),
+                                     np.concatenate([unc_norm.detach().cpu().numpy(), unc_conf.detach().cpu().numpy()])))
         print(f'====> {dataset.data_name} Normal: {np.mean(acc_normal) * 100:0.3f}% ± {np.std(acc_normal) * 100:0.3f}')
         print(f'====> {dataset.data_name} Conflict: {np.mean(acc_conflict) * 100:0.3f}% ± {np.std(acc_conflict) * 100:0.3f}')
         results[f'{dataset.data_name}_normal_mean'] = np.mean(acc_normal) * 100
         results[f'{dataset.data_name}_normal_std'] = np.std(acc_normal) * 100
         results[f'{dataset.data_name}_conflict_mean'] = np.mean(acc_conflict) * 100
         results[f'{dataset.data_name}_conflict_std'] = np.std(acc_conflict) * 100
-        data.append([dataset.data_name, args.agg, args.activation, args.flambda, np.mean(acc_normal) * 100, np.std(acc_normal) * 100, np.mean(acc_conflict) * 100, np.std(acc_conflict) * 100])
+        results[f'{dataset.data_name}_auc_mean'] = np.mean(auc)
+        results[f'{dataset.data_name}_auc_std'] = np.std(auc)
+        data.append([dataset.data_name, args.agg, args.activation, args.flambda, np.mean(acc_normal) * 100,
+                     np.std(acc_normal) * 100, np.mean(acc_conflict) * 100, np.std(acc_conflict) * 100,
+                     np.mean(auc), np.std(auc)])
     df = pd.DataFrame(data, columns=columns)
     df.to_csv(f'exp_results/{args.agg}_{args.runs}_{args.epochs}_{args.activation}.csv')
 

@@ -51,30 +51,12 @@ class RCML(nn.Module):
                 evidence_a = evidence_a + evidences[i]
             elif self.aggregation == 'conf_agg_rev':
                 evidence_a = (evidences[self.num_views-i] + evidence_a) / 2
-            elif self.aggregation == 'weighted_belief':
-                div_a, evidence_a = self.get_weighted_belief_fusion(div_a, evidence_a, evidences, i)
             else:
                 raise ValueError(f"Invalid aggregation method: {self.aggregation}")
 
         if self.aggregation == 'average':
             evidence_a = evidence_a / self.num_views
-        elif self.aggregation == 'weighted_belief':
-            evidence_a = evidence_a / div_a
         return evidences, evidence_a
-
-    def get_weighted_belief_fusion(self, div_a, evidence_a, evidences, i):
-        uncertainty = self.num_classes / (evidences[i] + 1).sum(dim=-1).unsqueeze(-1)
-        alphas = evidences[i] + 1
-        alpha_0 = alphas.sum(dim=-1, keepdim=True)
-        probs = alphas / alpha_0
-        # aleatoric = -torch.sum(probs * (torch.digamma(alphas + 1) - torch.digamma(alpha_0 + 1)), dim=-1).unsqueeze(-1)
-        aleatoric = -torch.sum(probs * torch.log(probs), dim=-1).unsqueeze(-1)
-        max_entropy = np.log(self.num_classes)
-        aleatoric_to_1 = aleatoric / max_entropy
-        evidence_a = evidence_a + evidences[i] * (1 - uncertainty) * (1 - aleatoric_to_1)
-        # evidence_a = evidence_a + evidences[i]  * (1 - aleatoric_to_1)
-        div_a = div_a - aleatoric_to_1
-        return div_a, evidence_a
 
 
     def get_doc_belief_fusion(self, div_a, evidences, flambda=3):

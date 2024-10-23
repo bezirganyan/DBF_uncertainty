@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader, Subset
 
 from data import CUB, CalTech, HandWritten, PIE, Scene
 from loss_function import get_loss
-from model import RCML
+from model import DBFModel
 torch.autograd.set_detect_anomaly(True)
 gettrace = getattr(sys, 'gettrace', None)
 
@@ -83,7 +83,7 @@ def normal(args, dataset, agg, best_params, run=0):
 
 def train(agg, num_classes, num_views, train_loader, val_loader, args, device, dims, annealing, gamma, lr,
           weight_decay=1e-5):
-    model = RCML(num_views, dims, num_classes, agg, flambda=args.flambda, activation=args.activation)
+    model = DBFModel(num_views, dims, num_classes, agg, flambda=args.flambda, activation=args.activation)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     model.to(device)
     model.train()
@@ -121,7 +121,7 @@ def conflict(args, dataset, agg, model, run=0):
     test_loader = DataLoader(Subset(dataset, test_index), batch_size=args.batch_size, shuffle=False)
 
     retrain_conflict = model is None
-    model = model if model else RCML(num_views, dims, num_classes, agg, flambda=args.flambda, activation=args.activation)
+    model = model if model else DBFModel(num_views, dims, num_classes, agg, flambda=args.flambda, activation=args.activation)
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     gamma = 1

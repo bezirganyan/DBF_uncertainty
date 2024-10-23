@@ -4,9 +4,9 @@ import torch.nn as nn
 from torch.nn.functional import softplus
 
 
-class RCML(nn.Module):
+class DBFModel(nn.Module):
     def __init__(self, num_views, dims, num_classes, aggregation='average', flambda=1, activation='softplus'):
-        super(RCML, self).__init__()
+        super(DBFModel, self).__init__()
         self.aggregation = aggregation
         self.num_views = num_views
         self.num_classes = num_classes

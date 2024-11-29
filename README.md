@@ -3,6 +3,8 @@
 
 The soure code for paper: Multimodal Learning with Uncertainty Quantification based on Discounted Belief Fusion
 
+**The updated figures for the rebuttal of the paper are in the [updated_figures](./updated_figures) folder of this repository.**
+
 ## Requirements
 
 ```

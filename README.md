@@ -1,4 +1,4 @@
-# DBAF: Multimodal Learning with Uncertainty Quantification based on Discounted Belief Fusion
+# DBF: Multimodal Learning with Uncertainty Quantification based on Discounted Belief Fusion
 ## Description
 
 The soure code for paper: Multimodal Learning with Uncertainty Quantification based on Discounted Belief Fusion

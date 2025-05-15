@@ -1,9 +1,7 @@
 # DBF: Multimodal Learning with Uncertainty Quantification based on Discounted Belief Fusion
 ## Description
 
-The soure code for paper: Multimodal Learning with Uncertainty Quantification based on Discounted Belief Fusion
-
-**The updated figures for the rebuttal of the paper are in the `updated_figures` folder of this repository.**
+The soure code for AISTATS 2025 paper: **[Multimodal Learning with Uncertainty Quantification based on Discounted Belief Fusion](https://proceedings.mlr.press/v258/bezirganyan25a.html)**
 
 ## Requirements
 
@@ -52,7 +50,29 @@ python script.py --batch-size 100 --lr 0.001
 ```
 
 ## Thanks
-Some code snippets were borrowed from: https://github.com/jiajunsi/RCML, which is within our related work
+Some code were borrowed from: https://github.com/jiajunsi/RCML, which is cited within our related work
+
+## Citation
+If you used the approach please cite our paper with:
+
+> Bezirganyan, G., Sellami, S., Berti-Équille, L. &amp; Fournier, S.. (2025). Multimodal Learning with Uncertainty Quantification based on Discounted Belief Fusion. <i>Proceedings of The 28th International Conference on Artificial Intelligence and Statistics</i>, in <i>Proceedings of Machine Learning Research</i> 258:3142-3150 Available from https://proceedings.mlr.press/v258/bezirganyan25a.html.
+
+or if you use latex with bibtex
+```
+@InProceedings{pmlr-v258-bezirganyan25a,
+  title = 	 {Multimodal Learning with Uncertainty Quantification based on Discounted Belief Fusion},
+  author =       {Bezirganyan, Grigor and Sellami, Sana and Berti-Equille, Laure and Fournier, S{\'e}bastien},
+  booktitle = 	 {Proceedings of The 28th International Conference on Artificial Intelligence and Statistics},
+  pages = 	 {3142--3150},
+  year = 	 {2025},
+  editor = 	 {Li, Yingzhen and Mandt, Stephan and Agrawal, Shipra and Khan, Emtiyaz},
+  volume = 	 {258},
+  series = 	 {Proceedings of Machine Learning Research},
+  month = 	 {03--05 May},
+  publisher =    {PMLR},
+  pdf = 	 {https://raw.githubusercontent.com/mlresearch/v258/main/assets/bezirganyan25a/bezirganyan25a.pdf},
+  url = 	 {https://proceedings.mlr.press/v258/bezirganyan25a.html},
+```
 
 ## License
 

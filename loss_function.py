@@ -20,37 +20,6 @@ def kl_divergence(alpha, num_classes, device):
     kl = first_term + second_term
     return kl
 
-
-def loglikelihood_loss(y, alpha, device):
-    y = y.to(device)
-    alpha = alpha.to(device)
-    S = torch.sum(alpha, dim=1, keepdim=True)
-    loglikelihood_err = torch.sum((y - (alpha / S)) ** 2, dim=1, keepdim=True)
-    loglikelihood_var = torch.sum(
-        alpha * (S - alpha) / (S * S * (S + 1)), dim=1, keepdim=True
-    )
-    loglikelihood = loglikelihood_err + loglikelihood_var
-    return loglikelihood
-
-
-def mse_loss(y, alpha, epoch_num, num_classes, annealing_step, device=None, useKL=True):
-    y = y.to(device)
-    alpha = alpha.to(device)
-    loglikelihood = loglikelihood_loss(y, alpha, device=device)
-
-    if not useKL:
-        return loglikelihood
-
-    annealing_coef = torch.min(
-        torch.tensor(1.0, dtype=torch.float32),
-        torch.tensor(epoch_num / annealing_step, dtype=torch.float32),
-    )
-
-    kl_alpha = (alpha - 1) * (1 - y) + 1
-    kl_div = annealing_coef * kl_divergence(kl_alpha, num_classes, device=device)
-    return loglikelihood + kl_div
-
-
 def edl_loss(func, y, alpha, epoch_num, num_classes, annealing_step, device, useKL=True):
     y = y.to(device)
     alpha = alpha.to(device)
@@ -69,17 +38,6 @@ def edl_loss(func, y, alpha, epoch_num, num_classes, annealing_step, device, use
     kl_alpha = (alpha - 1) * (1 - y) + 1
     kl_div = annealing_coef * kl_divergence(kl_alpha, num_classes, device=device)
     return A + kl_div
-
-
-def edl_mse_loss(alpha, target, epoch_num, num_classes, annealing_step, device):
-    loss = mse_loss(target, alpha, epoch_num, num_classes, annealing_step, device=device)
-    return torch.mean(loss)
-
-
-def edl_log_loss(alpha, target, epoch_num, num_classes, annealing_step, device):
-    loss = edl_loss(torch.log, target, alpha, epoch_num, num_classes, annealing_step, device)
-    return torch.mean(loss)
-
 
 def edl_digamma_loss(alpha, target, epoch_num, num_classes, annealing_step, device):
     loss = edl_loss(torch.digamma, target, alpha, epoch_num, num_classes, annealing_step, device)
@@ -116,33 +74,3 @@ def get_loss(evidences, evidence_a, target, epoch_num, num_classes, annealing_st
     loss_acc = loss_acc / (len(evidences) + 1)
     loss = loss_acc + gamma * get_dc_loss(evidences, device)
     return loss
-
-
-def belief_matching(alphas, ys):
-    prior = 1.
-    coeff = 0.1
-    # alphas = torch.exp(alphas)
-    betas = prior * torch.ones_like(alphas)
-    ys = ys.long()
-    a_ans = torch.gather(alphas, -1, ys.unsqueeze(-1)).squeeze(-1)
-    a_zero = torch.sum(alphas, -1)
-    ll_loss = digamma(a_ans) - digamma(a_zero)
-
-    loss1 = torch.lgamma(a_zero) - torch.sum(torch.lgamma(alphas), -1)
-    loss2 = torch.sum(
-        (alphas - betas) * (digamma(alphas) - digamma(a_zero.unsqueeze(-1))),
-        -1)
-    kl_loss = loss1 + loss2
-
-    loss = (coeff * kl_loss - ll_loss).mean()
-    return loss
-
-
-def get_bm_loss(alphas, alpha_a, target):
-    loss_acc = belief_matching(alpha_a, target)
-    for v in range(len(alphas)):
-        alpha = alphas[v] + 1
-        loss_acc += belief_matching(alpha, target)
-    loss_acc = loss_acc / (len(alphas) + 1)
-    # loss = loss_acc + gamma * get_dc_loss(evidences, device)
-    return loss_acc

@@ -13,9 +13,6 @@ class DBFModel(nn.Module):
         self.flambda = flambda
         self.activation = activation
         self.EvidenceCollectors = nn.ModuleList([EvidenceCollector(dims[i], self.num_classes, activation=activation) for i in range(self.num_views)])
-        # self.W_K = torch.nn.Linear(self.num_classes, self.num_classes, bias=False)
-        # self.W_Q = torch.nn.Linear(self.num_classes, self.num_classes, bias=False)
-        # # self.W_V = torch.nn.Linear(self.num_classes, self.num_classes, bias=False)
         self.multihead_attention = torch.nn.MultiheadAttention(embed_dim=self.num_classes, num_heads=1, batch_first=True)
         self.attention_dropout = torch.nn.Dropout(0.2)
 
@@ -27,15 +24,15 @@ class DBFModel(nn.Module):
         # average belief fusion
         indices = list(range(self.num_views))
         np.random.shuffle(indices)
-        if self.aggregation == 'conf_agg_random':
+        if self.aggregation == 'ecml_random':
             evidence_a = evidences[indices[0]]
         else:
             evidence_a = evidences[0]
         if self.aggregation == 'weighted_belief':
             div_a, evidence_a = self.get_weighted_belief_fusion(self.num_views,0, evidences, 0)
-        if self.aggregation == 'doc':
+        if self.aggregation == 'dbf':
             return self.get_doc_belief_fusion(self.num_views, evidences, self.flambda)
-        if self.aggregation == 'weighted_doc':
+        if self.aggregation == 'weighted_dbf':
             return self.get_weighted_doc_belief_fusion(self.num_views, evidences, self.flambda)
         elif self.aggregation == 'tmc':
             return self.get_dempsters_combination(evidences)
@@ -43,14 +40,12 @@ class DBFModel(nn.Module):
         for i in range(1, self.num_views):
             if self.aggregation == 'average':
                 evidence_a = (evidences[i] + evidence_a)
-            elif self.aggregation == 'conf_agg':
+            elif self.aggregation == 'ecml':
                 evidence_a = (evidences[i] + evidence_a) / 2
-            elif self.aggregation == 'conf_agg_random':
+            elif self.aggregation == 'ecml_random':
                 evidence_a = (evidences[indices[i]] + evidence_a) / 2
             elif self.aggregation == 'sum':
                 evidence_a = evidence_a + evidences[i]
-            elif self.aggregation == 'conf_agg_rev':
-                evidence_a = (evidences[self.num_views-i] + evidence_a) / 2
             else:
                 raise ValueError(f"Invalid aggregation method: {self.aggregation}")
 

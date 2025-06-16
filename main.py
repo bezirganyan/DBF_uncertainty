@@ -39,9 +39,6 @@ def normal(args, dataset, agg, best_params, run=0):
     np.random.shuffle(index)
     train_index, test_index = index[:int(0.8 * num_samples)], index[int(0.8 * num_samples):]
 
-    # dataset.postprocessing(train_index, addNoise=True, sigma=0.5, ratio_noise=1.0, addConflict=False, ratio_conflict=1.0)
-    # dataset.postprocessing(test_index, addNoise=True, sigma=0.5, ratio_noise=1.0, addConflict=False, ratio_conflict=1.0)
-
     train_loader = DataLoader(Subset(dataset, train_index), batch_size=args.batch_size, shuffle=True)
     test_loader = DataLoader(Subset(dataset, test_index), batch_size=args.batch_size, shuffle=False)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -138,7 +135,6 @@ def conflict(args, dataset, agg, model, run=0):
                 Y = Y.to(device)
                 evidences, evidence_a = model(X)
                 loss = get_loss(evidences, evidence_a, Y, epoch, num_classes, args.annealing_step, gamma, device)
-                # loss = get_bm_loss(evidences, evidence_a, Y)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -189,7 +185,7 @@ if __name__ == '__main__':
                         help='gradually increase the value of lambda from 0 to 1')
     parser.add_argument('--lr', type=float, default=0.003, metavar='LR',
                         help='learning rate')
-    parser.add_argument('--agg', type=str, default='conf_agg')
+    parser.add_argument('--agg', type=str, default='dbf')
     parser.add_argument('--runs', type=int, default=1)
     parser.add_argument('--flambda', type=float, default=1)
     parser.add_argument('--activation', type=str, default='softplus')

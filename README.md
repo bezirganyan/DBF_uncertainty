@@ -3,6 +3,8 @@
 
 The soure code for AISTATS 2025 paper: **[Multimodal Learning with Uncertainty Quantification based on Discounted Belief Fusion](https://proceedings.mlr.press/v258/bezirganyan25a.html)**
 
+Link to the [poster](https://github.com/bezirganyan/DBF_uncertainty/blob/a8468e2fb610aa5594ccfe5aa488e02f7199a354/DBF_AIStats_2025_Poster.pdf)
+
 ## Requirements
 
 ```
